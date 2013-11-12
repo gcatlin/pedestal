@@ -27,11 +27,13 @@
 (defroutes routes
   [[["/hello-world" {:get hello-world}]]])
 
-(def app
-  (::service/service-fn (-> {::service/routes routes
-                             ::service/allowed-origins ["http://foo.com:8080"]}
-                            service/default-interceptors
-                            service/service-fn)))
+(def service (-> {::service/routes routes
+                  ::service/allowed-origins {:allowed-origins ["http://foo.com:8080"]
+                                             :methods [:get :post]}}
+                 service/default-interceptors
+                 service/service-fn))
+
+(def app (::service/service-fn service))
 
 (deftest no-origin-test
   (let [response (response-for app :get "/hello-world")]
@@ -47,3 +49,17 @@
   (let [response (response-for app :get "/hello-world" :headers {"origin" "https://bar.org"})]
     (is (= 403 (:status response)))
     (is (= nil (get-in response [:headers "Origin"])))))
+
+(deftest good-method-test
+  (let [response (response-for app :options "/hello-world" :headers {"origin" "http://foo.com:8080"})]
+    (is (= 200 (:status response)))
+    (is (= "GET, POST, PUT, DELETE, HEAD, OPTIONS, PATCH"
+           (get-in response [:headers "Access-Control-Allow-Methods"])))))
+
+(deftest bad-method-test
+  (let [service (assoc service ::service/allowed-origins {:allowed-origins "http://foo.com:8080"
+                                                          :methods [:fizz :buzz]})
+        app (::service/service-fn service)
+        response (response-for app :options "/hello-world" :headers {"origin" "http://foo.com:8080"})]
+    (is (= 200 (:status response)))
+    (is (= "FIZZ, BUZZ" (get-in response [:headers "Access-Control-Allow-Methods"])))))
